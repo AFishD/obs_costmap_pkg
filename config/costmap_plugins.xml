@@ -1,0 +1,7 @@
+<library path="lib/libcustom_obstacle_layer">
+    <class name="custom_obstacle_layer/ObstacleLayer" 
+           type="obs_costmap_pkg::ObstacleLayer" 
+           base_class_type="costmap_2d::Layer">
+        <description>Custom obstacle layer</description>
+    </class>
+</library>

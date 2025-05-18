@@ -1,0 +1,23 @@
+<launch>
+  <node pkg="move_base" type="move_base" name="move_base" output="screen">
+
+    <!-- 公共参数 -->
+    <rosparam file="$(find obs_costmap_pkg)/config/costmap_common_params.yaml" 
+             command="load" 
+             ns="global_costmap" />
+    <rosparam file="$(find obs_costmap_pkg)/config/costmap_common_params.yaml" 
+             command="load" 
+             ns="local_costmap" />
+
+    <!-- 局部代价地图参数 -->
+    <rosparam file="$(find obs_costmap_pkg)/config/local_costmap_params.yaml" 
+             command="load" 
+             ns="local_costmap" />
+
+    <!-- 全局代价地图参数 -->
+    <!-- <rosparam file="$(find obs_costmap_pkg)/config/global_costmap_params.yaml" 
+             command="load" 
+             ns="global_costmap" /> -->
+
+  </node>
+</launch>
