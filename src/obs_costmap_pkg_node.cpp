@@ -90,6 +90,8 @@ class LaserObstacleAvoidance
                     if (fabs(map_point.point.z) <= max_obstacle_height_)
                     { 
                         costmap_->setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
+                        costmap_ros_.updateMap();
+                        // costmap_ros_.publishCostmap();
                     }
                 }
             }
@@ -233,7 +235,7 @@ class LaserObstacleAvoidance
                                 double distance_in_cells = sqrt(dx*dx + dy*dy);
                                 
                                 // 若距离在清除半径内，则标记为自由空间
-                                if (distance_in_cells <= cell_clear_radius)
+                                if (distance_in_cells >= cell_clear_radius)
                                 {
                                     costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
                                 }
