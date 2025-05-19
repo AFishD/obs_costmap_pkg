@@ -39,6 +39,7 @@ class LaserObstacleAvoidance
     private:
         void laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
         {
+            ROS_INFO("Get laser msgs");
             // 1. 清除旧障碍物信息
             clearOldObstacles(scan_msg->header.stamp);
 
@@ -96,6 +97,7 @@ class LaserObstacleAvoidance
 
         void rgbdCallback(const sensor_msgs::Image::ConstPtr& image_msg)
         {
+            ROS_INFO ("Get rgbd msgs");
             if (!have_camera_info_)
             {
                 ROS_WARN("Cant get depthcamera info");
