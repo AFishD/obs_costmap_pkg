@@ -1,0 +1,10 @@
+<launch>
+    <node name="obs_costmap_node" pkg="obs_costmap_pkg" type="obs_costmap_node" output="screen">
+
+        <!-- 加载 costmap 公共参数 -->
+        <rosparam file="$(find obs_costmap_pkg)/config/costmap_common_params.yaml" command="load"/>
+
+        <!-- 加载局部代价地图参数 -->
+        <rosparam file="$(find obs_costmap_pkg)/config/local_costmap_params.yaml" command="load"/>
+    </node>
+</launch>

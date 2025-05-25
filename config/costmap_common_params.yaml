@@ -1,16 +1,29 @@
-plugins:
-  - {name: static_layer,      type: "costmap_2d::StaticLayer"}
-  - {name: obstacle_layer,    type: "costmap_2d::VoxelLayer"}
-  - {name: inflation_layer,   type: "costmap_2d::InflationLayer"}
-
-obstacle_layer:
-  enabled: true
-  max_obstacle_height: 0.6
-  obstacle_range: 2.5
-  raytrace_range: 3.0
-
 footprint: [[0.3, 0.3], [-0.3, 0.3], [-0.3, -0.3], [0.3, -0.3]]
 robot_radius: 0.3
 inflation_radius: 0.5
 obstacle_range: 2.5
 raytrace_range: 3.0
+
+custom_costmap:
+  global_frame: odom
+  robot_base_frame: base_footprint
+  publish_frequency: 5.0
+  transform_tolerance: 0.5
+
+  plugins:
+    - {name: static_layer, type: "costmap_2d::StaticLayer"}
+    - {name: obstacle_layer, type: "costmap_2d::VoxelLayer"}
+    - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
+
+  static_layer:
+    enabled: true
+
+  obstacle_layer:
+    enabled: true
+    max_obstacle_height: 0.6
+    obstacle_range: 2.5
+    raytrace_range: 3.0
+
+  inflation_layer:
+    enabled: true
+    inflation_radius: 0.5

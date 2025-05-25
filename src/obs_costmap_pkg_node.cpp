@@ -18,23 +18,43 @@
 class LaserObstacleAvoidance
 {
     public:
-    LaserObstacleAvoidance() :
-        tf_buffer_(),
-        tf_listener_(tf_buffer_),
-        costmap_ros_("custom_costmap", tf_buffer_),
-        obstacle_range_(2.5),
-        max_obstacle_height_(2.0),
-        raytrace_range_(3.0),
-        fx_(525.0), fy_(525.0), cx_(319.5), cy_(239.5),
-        have_camera_info_(true),
-        max_depth_(4.0)
-    {
-        laser_sub_ = nh_.subscribe<sensor_msgs::LaserScan>("/scan", 1, &LaserObstacleAvoidance::laserCallback, this);
-        rgbd_sub_ = nh_.subscribe<sensor_msgs::Image>("/camera/depth/points", 1, &LaserObstacleAvoidance::rgbdCallback, this);
-        
-        costmap_ = costmap_ros_.getCostmap();
-        costmap_->setDefaultValue(costmap_2d::FREE_SPACE);
-    }
+        LaserObstacleAvoidance() :
+            tf_buffer_(),
+            tf_listener_(tf_buffer_),
+
+            costmap_ros_("custom_costmap" , tf_buffer_),
+
+            obstacle_range_(2.5),
+            max_obstacle_height_(2.0),
+            raytrace_range_(3.0),
+
+            fx_(525.0), fy_(525.0), cx_(319.5), cy_(239.5),
+            have_camera_info_(true),
+            max_depth_(4.0)
+        {
+            //创建私有节点句柄
+            ros::NodeHandle nh_("~");
+
+            //从参数服务器读取参数，覆盖默认值
+            nh_.param("obstacle_range", obstacle_range_, 2.5);
+            nh_.param("max_obstacle_height", max_obstacle_height_, 0.6);
+            nh_.param("raytrace_range", raytrace_range_, 3.0);
+
+            //相机内参
+            nh_.param("fx", fx_, 525.0);
+            nh_.param("fy", fy_, 525.0);
+            nh_.param("cx", cx_, 319.5);
+            nh_.param("cy", cy_, 239.5);
+
+            nh_.param("max_depth", max_depth_, 4.0);                   //深度图最大有效距离
+
+            //初始化订阅和地图
+            laser_sub_ = nh_.subscribe<sensor_msgs::LaserScan>("/scan", 1, &LaserObstacleAvoidance::laserCallback, this);
+            rgbd_sub_ = nh_.subscribe<sensor_msgs::Image>("/camera/depth/points", 1, &LaserObstacleAvoidance::rgbdCallback, this);
+            
+            costmap_ = costmap_ros_.getCostmap();
+            costmap_->setDefaultValue(costmap_2d::FREE_SPACE);
+        }
 
     private:
         void laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
@@ -90,11 +110,11 @@ class LaserObstacleAvoidance
                     if (fabs(map_point.point.z) <= max_obstacle_height_)
                     { 
                         costmap_->setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
-                        costmap_ros_.updateMap();
-                        // costmap_ros_.publishCostmap();
                     }
                 }
             }
+            costmap_ros_.updateMap();
+            ROS_INFO("Laser costmap updated");
         }
 
         void rgbdCallback(const sensor_msgs::Image::ConstPtr& image_msg)
@@ -166,6 +186,8 @@ class LaserObstacleAvoidance
                     }
                 }
             }
+            costmap_ros_.updateMap();
+            ROS_INFO("RGBD costmap updated");
         }
 
         void clearOldObstacles(const ros::Time& stamp)
@@ -173,11 +195,10 @@ class LaserObstacleAvoidance
             geometry_msgs::TransformStamped robot_transform;
             try
             {
-                robot_transform = tf_buffer_.lookupTransform
-                (
+                robot_transform = tf_buffer_.lookupTransform(
                     costmap_ros_.getGlobalFrameID(),
                     costmap_ros_.getBaseFrameID(),
-                    ros::Time(0),
+                    stamp,
                     ros::Duration(1.0)
                 );
             }
@@ -187,60 +208,38 @@ class LaserObstacleAvoidance
                 return;
             }
 
-            // 获取机器人世界坐标
             double robot_x = robot_transform.transform.translation.x;
             double robot_y = robot_transform.transform.translation.y;
-            double clear_radius = raytrace_range_;
-            
-            unsigned int min_x, min_y, max_x, max_y;
-            if (!costmap_->worldToMap(robot_x - clear_radius, robot_y - clear_radius, min_x, min_y)) return;
-            if (!costmap_->worldToMap(robot_x + clear_radius, robot_y + clear_radius, max_x, max_y)) return;
 
-            min_x = std::max(0, static_cast<int>(min_x));
-            min_y = std::max(0, static_cast<int>(min_y));
-            max_x = std::min(static_cast<int>(costmap_->getSizeInCellsX()), static_cast<int>(max_x));
-            max_y = std::min(static_cast<int>(costmap_->getSizeInCellsY()), static_cast<int>(max_y));
-
-            for (unsigned int y = min_y; y < max_y; ++y)
+            unsigned int robot_mx, robot_my;
+            if (!costmap_->worldToMap(robot_x, robot_y, robot_mx, robot_my))
             {
-                for (unsigned int x = min_x; x < max_x; ++x)
+                return;
+            }
+
+            double clear_radius_cells = raytrace_range_ / costmap_->getResolution();
+            unsigned int clear_radius_cells_int = static_cast<unsigned int>(std::ceil(clear_radius_cells));
+
+            // 强制转换为 int 以避免类型冲突
+            int robot_mx_int = static_cast<int>(robot_mx);
+            int robot_my_int = static_cast<int>(robot_my);
+            int clear_radius_int = static_cast<int>(clear_radius_cells_int);
+
+            int start_x = std::max(0, robot_mx_int - clear_radius_int);
+            int start_y = std::max(0, robot_my_int - clear_radius_int);
+            int end_x = std::min(static_cast<int>(costmap_->getSizeInCellsX()), robot_mx_int + clear_radius_int);
+            int end_y = std::min(static_cast<int>(costmap_->getSizeInCellsY()), robot_my_int + clear_radius_int);
+
+            for (int y = start_y; y <= end_y; ++y)
+            {
+                for (int x = start_x; x <= end_x; ++x)
                 {
-                    if (hypot(x - robot_x, y - robot_y) <= clear_radius)
+                    double dx = x - robot_mx;
+                    double dy = y - robot_my;
+                    double distance_sq = dx * dx + dy * dy;
+                    if (distance_sq <= clear_radius_cells_int * clear_radius_cells_int)
                     {
-                        // 获取地图分辨率
-                        double resolution = costmap_->getResolution();
-
-                        // 将机器人世界坐标转换为地图原点的偏移量
-                        double origin_x = costmap_->getOriginX();
-                        double origin_y = costmap_->getOriginY();
-
-                        // 计算清除半径对应的 cell 数量
-                        unsigned int cell_clear_radius = static_cast<unsigned int>(clear_radius / resolution);
-
-                        // 机器人对应的 cell 坐标
-                        unsigned int robot_cell_x, robot_cell_y;
-                        if (!costmap_->worldToMap(robot_x, robot_y, robot_cell_x, robot_cell_y))
-                        {
-                            return; // 转换失败则跳过
-                        }
-
-                        // 遍历清除区域
-                        for (unsigned int y = min_y; y < max_y; ++y)
-                        {
-                            for (unsigned int x = min_x; x < max_x; ++x)
-                            {
-                                // 计算 cell 到机器人 cell 的欧氏距离（单位：cell）
-                                double dx = static_cast<double>(x - robot_cell_x);
-                                double dy = static_cast<double>(y - robot_cell_y);
-                                double distance_in_cells = sqrt(dx*dx + dy*dy);
-                                
-                                // 若距离在清除半径内，则标记为自由空间
-                                if (distance_in_cells >= cell_clear_radius)
-                                {
-                                    costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
-                                }
-                            }
-                        }
+                        costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
                     }
                 }
             }
