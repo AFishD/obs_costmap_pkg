@@ -60,26 +60,41 @@ class LaserObstacleAvoidance
         void laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan_msg)
         {
             ROS_INFO("Get laser msgs");
-            // 1. 清除旧障碍物信息
+
+            geometry_msgs::TransformStamped robot_transform;
+            try
+            {
+                robot_transform = tf_buffer_.lookupTransform
+                (
+                    costmap_ros_.getGlobalFrameID(),
+                    costmap_ros_.getBaseFrameID(),
+                    scan_msg->header.stamp,
+                    ros::Duration(0.1)
+                );
+            }
+            catch (tf2::TransformException& ex)
+            {
+                ROS_WARN("无法获取机器人位姿: %s", ex.what());
+                return;
+            }
+
+            double robot_x = robot_transform.transform.translation.x;
+            double robot_y = robot_transform.transform.translation.y;
+
             clearOldObstacles(scan_msg->header.stamp);
 
-            // 2. 处理激光点
             for (size_t i = 0; i < scan_msg->ranges.size(); ++i)
             {
                 float range = scan_msg->ranges[i];
-                if (range < scan_msg->range_min || range > scan_msg->range_max)
+                if (range > obstacle_range_)
                 {
                     continue;
                 }
 
-                // 计算激光点角度
                 double angle = scan_msg->angle_min + i * scan_msg->angle_increment;
-                
-                // 转换为笛卡尔坐标
                 double x = range * cos(angle);
                 double y = range * sin(angle);
 
-                // 转换到地图坐标系
                 geometry_msgs::PointStamped laser_point, map_point;
                 laser_point.header = scan_msg->header;
                 laser_point.point.x = x;
@@ -88,43 +103,61 @@ class LaserObstacleAvoidance
 
                 try
                 {
-                    // 使用tf2进行转换
-                    map_point = tf_buffer_.transform
-                    (
-                        laser_point, 
-                        costmap_ros_.getGlobalFrameID(), 
-                        ros::Duration(1.0)
-                    );
-                } 
+                    map_point = tf_buffer_.transform(laser_point, costmap_ros_.getGlobalFrameID(), ros::Duration(0.1));
+                }
                 catch (tf2::TransformException& ex)
                 {
                     ROS_WARN("TF转换失败: %s", ex.what());
                     continue;
                 }
 
-                // 3. 更新代价值
                 unsigned int mx, my;
-                if (costmap_->worldToMap(map_point.point.x, map_point.point.y, mx, my))
+                if (!costmap_->worldToMap(map_point.point.x, map_point.point.y, mx, my))
                 {
-                    // 检查高度是否在有效范围内
-                    if (fabs(map_point.point.z) <= max_obstacle_height_)
-                    { 
-                        costmap_->setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
-                    }
+                    continue;
                 }
+
+                if (fabs(map_point.point.z) > max_obstacle_height_)
+                {
+                    continue;
+                }
+
+                double distance = sqrt(pow(map_point.point.x - robot_x, 2) + pow(map_point.point.y - robot_y, 2));
+                if (distance > obstacle_range_)
+                {
+                    continue;
+                }
+
+                costmap_->setCost(mx, my, costmap_2d::LETHAL_OBSTACLE);
             }
+
             costmap_ros_.updateMap();
             ROS_INFO("Laser costmap updated");
         }
 
         void rgbdCallback(const sensor_msgs::Image::ConstPtr& image_msg)
         {
-            ROS_INFO ("Get rgbd msgs");
-            if (!have_camera_info_)
+            ROS_INFO("Get rgbd msgs");
+
+            geometry_msgs::TransformStamped robot_transform;
+            try
             {
-                ROS_WARN("Cant get depthcamera info");
+                robot_transform = tf_buffer_.lookupTransform
+                (
+                    costmap_ros_.getGlobalFrameID(),
+                    costmap_ros_.getBaseFrameID(),
+                    image_msg->header.stamp,
+                    ros::Duration(0.1)
+                );
+            }
+            catch (tf2::TransformException& ex)
+            {
+                ROS_WARN("无法获取机器人位姿: %s", ex.what());
                 return;
             }
+
+            double robot_x = robot_transform.transform.translation.x;
+            double robot_y = robot_transform.transform.translation.y;
 
             clearOldObstacles(image_msg->header.stamp);
 
@@ -176,7 +209,8 @@ class LaserObstacleAvoidance
                     if (fabs(map_point.point.z) > max_obstacle_height_)
                         continue;
 
-                    if (sqrt(x*x + y*y) > obstacle_range_)
+                    double distance = sqrt(pow(map_point.point.x - robot_x, 2) + pow(map_point.point.y - robot_y, 2));
+                    if (distance > obstacle_range_)
                         continue;
 
                     unsigned int mx, my;
@@ -195,7 +229,8 @@ class LaserObstacleAvoidance
             geometry_msgs::TransformStamped robot_transform;
             try
             {
-                robot_transform = tf_buffer_.lookupTransform(
+                robot_transform = tf_buffer_.lookupTransform
+                (
                     costmap_ros_.getGlobalFrameID(),
                     costmap_ros_.getBaseFrameID(),
                     stamp,
@@ -210,20 +245,17 @@ class LaserObstacleAvoidance
 
             double robot_x = robot_transform.transform.translation.x;
             double robot_y = robot_transform.transform.translation.y;
-
             unsigned int robot_mx, robot_my;
             if (!costmap_->worldToMap(robot_x, robot_y, robot_mx, robot_my))
             {
                 return;
             }
 
-            double clear_radius_cells = raytrace_range_ / costmap_->getResolution();
-            unsigned int clear_radius_cells_int = static_cast<unsigned int>(std::ceil(clear_radius_cells));
-
-            // 强制转换为 int 以避免类型冲突
             int robot_mx_int = static_cast<int>(robot_mx);
             int robot_my_int = static_cast<int>(robot_my);
-            int clear_radius_int = static_cast<int>(clear_radius_cells_int);
+
+            double clear_radius_cells = raytrace_range_ / costmap_->getResolution();
+            int clear_radius_int = static_cast<int>(std::ceil(clear_radius_cells));
 
             int start_x = std::max(0, robot_mx_int - clear_radius_int);
             int start_y = std::max(0, robot_my_int - clear_radius_int);
@@ -234,10 +266,11 @@ class LaserObstacleAvoidance
             {
                 for (int x = start_x; x <= end_x; ++x)
                 {
-                    double dx = x - robot_mx;
-                    double dy = y - robot_my;
+                    double dx = x - robot_mx_int;
+                    double dy = y - robot_my_int;
                     double distance_sq = dx * dx + dy * dy;
-                    if (distance_sq <= clear_radius_cells_int * clear_radius_cells_int)
+
+                    if (distance_sq <= clear_radius_int * clear_radius_int)
                     {
                         costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
                     }
