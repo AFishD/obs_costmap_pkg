@@ -211,35 +211,40 @@ class LaserObstacleAvoidance
             double robot_x = robot_transform.transform.translation.x;
             double robot_y = robot_transform.transform.translation.y;
 
-            unsigned int robot_mx, robot_my;
-            if (!costmap_->worldToMap(robot_x, robot_y, robot_mx, robot_my))
+            double origin_x = costmap_->getOriginX();
+            double origin_y = costmap_->getOriginY();
+            double resolution = costmap_->getResolution();
+            
+            double robot_mx = (robot_x - origin_x) / resolution;
+            double robot_my = (robot_y - origin_y) / resolution;
+
+            double clear_radius_cells = raytrace_range_ / resolution;
+            double clear_radius_sq = clear_radius_cells * clear_radius_cells;
+
+            // 计算边界
+            int start_x = std::max(0, static_cast<int>(robot_mx - clear_radius_cells));
+            int start_y = std::max(0, static_cast<int>(robot_my - clear_radius_cells));
+            int end_x = std::min(static_cast<int>(costmap_->getSizeInCellsX()), 
+                            static_cast<int>(robot_mx + clear_radius_cells) + 1);
+            int end_y = std::min(static_cast<int>(costmap_->getSizeInCellsY()), 
+                            static_cast<int>(robot_my + clear_radius_cells) + 1);
+
+            for (int y = start_y; y < end_y; ++y)
             {
-                return;
-            }
-
-            double clear_radius_cells = raytrace_range_ / costmap_->getResolution();
-            unsigned int clear_radius_cells_int = static_cast<unsigned int>(std::ceil(clear_radius_cells));
-
-            // 强制转换为 int 以避免类型冲突
-            int robot_mx_int = static_cast<int>(robot_mx);
-            int robot_my_int = static_cast<int>(robot_my);
-            int clear_radius_int = static_cast<int>(clear_radius_cells_int);
-
-            int start_x = std::max(0, robot_mx_int - clear_radius_int);
-            int start_y = std::max(0, robot_my_int - clear_radius_int);
-            int end_x = std::min(static_cast<int>(costmap_->getSizeInCellsX()), robot_mx_int + clear_radius_int);
-            int end_y = std::min(static_cast<int>(costmap_->getSizeInCellsY()), robot_my_int + clear_radius_int);
-
-            for (int y = start_y; y <= end_y; ++y)
-            {
-                for (int x = start_x; x <= end_x; ++x)
+                for (int x = start_x; x < end_x; ++x)
                 {
-                    double dx = x - robot_mx;
-                    double dy = y - robot_my;
+                    // 使用浮点数计算精确距离
+                    double dx = (x + 0.5) - robot_mx; // 栅格中心坐标
+                    double dy = (y + 0.5) - robot_my;
                     double distance_sq = dx * dx + dy * dy;
-                    if (distance_sq <= clear_radius_cells_int * clear_radius_cells_int)
+                    
+                    if (distance_sq <= clear_radius_sq)
                     {
-                        costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
+                        // 仅清除障碍物层
+                        unsigned char current_cost = costmap_->getCost(x, y);
+                        if (current_cost == costmap_2d::LETHAL_OBSTACLE) {
+                            costmap_->setCost(x, y, costmap_2d::FREE_SPACE);
+                        }
                     }
                 }
             }
